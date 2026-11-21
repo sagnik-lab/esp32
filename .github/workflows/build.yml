@@ -33,19 +33,37 @@ jobs:
             done
           fi
 
-          arduino-cli compile --fqbn esp32:esp32:esp32doit-devkit-v1 --output-dir out sketch
+          # Find whatever .ino file is inside sketch/, regardless of its name
+          INO_PATH=$(find sketch -maxdepth 1 -name "*.ino" | head -n 1)
+          if [ -z "$INO_PATH" ]; then
+            echo "No .ino file found inside sketch/"
+            exit 1
+          fi
+          INO_NAME=$(basename "$INO_PATH" .ino)
+          echo "Found sketch: $INO_NAME"
+
+          # Make the sketch name available to later steps
+          echo "INO_NAME=$INO_NAME" >> "$GITHUB_ENV"
+
+          # arduino-cli requires the sketch folder name to match the .ino filename,
+          # so stage it into a correctly named temp folder before compiling
+          mkdir -p build_src/"$INO_NAME"
+          cp "$INO_PATH" build_src/"$INO_NAME"/
+
+          arduino-cli compile --fqbn esp32:esp32:esp32doit-devkit-v1 --export-binaries --output-dir out build_src/"$INO_NAME"
 
           mkdir -p renamed
-          cp out/sketch.ino.bootloader.bin renamed/sketch_bootloader.bin
-          cp out/sketch.ino.partitions.bin renamed/sketch_partitions.bin
-          cp out/sketch.ino.bin renamed/sketch_app.bin
+          cp out/"$INO_NAME".ino.bootloader.bin renamed/"${INO_NAME}"_bootloader.bin
+          cp out/"$INO_NAME".ino.partitions.bin renamed/"${INO_NAME}"_partitions.bin
+          cp out/"$INO_NAME".ino.bin renamed/"${INO_NAME}"_app.bin
+          cp out/"$INO_NAME".ino.merged.bin renamed/"${INO_NAME}"_merged.bin
 
           OTA_FILE=$(find ~/.arduino15/packages/esp32 -name "boot_app0.bin" | head -n 1)
           if [ -n "$OTA_FILE" ]; then
-            cp "$OTA_FILE" renamed/sketch_ota.bin
+            cp "$OTA_FILE" renamed/"${INO_NAME}"_ota.bin
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: ${{ env.INO_NAME }}_firmware
           path: renamed/*.bin
